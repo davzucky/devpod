@@ -15,6 +15,7 @@ import (
 	devagent "github.com/skevetter/devpod/pkg/agent"
 	"github.com/skevetter/devpod/pkg/client"
 	"github.com/skevetter/devpod/pkg/config"
+	"github.com/skevetter/devpod/pkg/pty"
 	devssh "github.com/skevetter/devpod/pkg/ssh"
 	devsshagent "github.com/skevetter/devpod/pkg/ssh/agent"
 	"github.com/skevetter/devpod/pkg/workspace"
@@ -41,6 +42,15 @@ const (
 	defaultTerm      = "xterm-256color"
 	termModeUsage    = "PTY TERM selection mode: auto, strict, fallback"
 	installUsage     = "Install local TERM terminfo on remote before PTY"
+)
+
+var (
+	isTerminalFunc = func(fd uintptr) bool {
+		return term.IsTerminal(int(fd)) // #nosec G115 -- fd is always a valid file descriptor
+	}
+	makeInputRawTerm    = pty.MakeInputRaw
+	makeOutputRawTerm   = pty.MakeOutputRaw
+	restoreTerminalFunc = pty.RestoreTerminal
 )
 
 type SSHSessionOptions struct {
@@ -274,13 +284,14 @@ func setupInteractivePTY(
 	session *ssh.Session,
 	options RunSSHSessionOptions,
 ) (func(), error) {
+	stdin := os.Stdin
 	stdout := os.Stdout
 	fd := int(stdout.Fd()) // #nosec G115 -- fd is always a valid file descriptor
-	if !term.IsTerminal(fd) {
+	if !hasInteractiveTerminal(stdin, stdout) {
 		return noopRestore, nil
 	}
 
-	restoreTerm, err := makeRawTerm(stdout)
+	restoreTerm, err := makeRawTerm(stdin, stdout)
 	if err != nil {
 		return noopRestore, err
 	}
@@ -297,15 +308,24 @@ func setupInteractivePTY(
 	return restoreTerm, nil
 }
 
-func makeRawTerm(stdout *os.File) (func(), error) {
-	fd := int(stdout.Fd()) // #nosec G115 -- fd is always a valid file descriptor
-	state, err := term.MakeRaw(fd)
+func hasInteractiveTerminal(stdin, stdout *os.File) bool {
+	return isTerminalFunc(stdin.Fd()) && isTerminalFunc(stdout.Fd())
+}
+
+func makeRawTerm(stdin, stdout *os.File) (func(), error) {
+	stdinState, err := makeInputRawTerm(stdin.Fd())
 	if err != nil {
+		return noopRestore, err
+	}
+	stdoutState, err := makeOutputRawTerm(stdout.Fd())
+	if err != nil {
+		_ = restoreTerminalFunc(stdin.Fd(), stdinState)
 		return noopRestore, err
 	}
 
 	return func() {
-		_ = term.Restore(int(stdout.Fd()), state)
+		_ = restoreTerminalFunc(stdout.Fd(), stdoutState)
+		_ = restoreTerminalFunc(stdin.Fd(), stdinState)
 	}, nil
 }
 
