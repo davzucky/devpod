@@ -50,8 +50,24 @@ func TestMakeRawTermUsesInputAndOutputTerminalState(t *testing.T) {
 	restore := stubTerminalFuncs(t)
 	defer restore()
 
-	makeInputRawTerm = makeRawRecorder(t, &calls, "input", stdin.reader.Fd(), stdinState, nil)
-	makeOutputRawTerm = makeRawRecorder(t, &calls, "output", stdout.writer.Fd(), stdoutState, nil)
+	makeInputRawTerm = makeRawRecorder(
+		t,
+		rawRecorderOpts{
+			calls:  &calls,
+			label:  "input",
+			wantFD: stdin.reader.Fd(),
+			state:  stdinState,
+		},
+	)
+	makeOutputRawTerm = makeRawRecorder(
+		t,
+		rawRecorderOpts{
+			calls:  &calls,
+			label:  "output",
+			wantFD: stdout.writer.Fd(),
+			state:  stdoutState,
+		},
+	)
 	restoreTerminalFunc = restoreRecorder(t, &calls, map[uintptr]restoreCall{
 		stdout.writer.Fd(): {state: stdoutState, label: "restore-output"},
 		stdin.reader.Fd():  {state: stdinState, label: "restore-input"},
@@ -75,10 +91,18 @@ func TestMakeRawTermRestoresInputOnOutputFailure(t *testing.T) {
 	restore := stubTerminalFuncs(t)
 	defer restore()
 
-	makeInputRawTerm = makeRawRecorder(t, nil, "", stdin.reader.Fd(), stdinState, nil)
-	makeOutputRawTerm = makeRawRecorder(t, nil, "", stdout.writer.Fd(), nil, outputErr)
+	makeInputRawTerm = makeRawRecorder(
+		t,
+		rawRecorderOpts{wantFD: stdin.reader.Fd(), state: stdinState},
+	)
+	makeOutputRawTerm = makeRawRecorder(
+		t,
+		rawRecorderOpts{wantFD: stdout.writer.Fd(), err: outputErr},
+	)
 	restoreTerminalFunc = func(fd uintptr, state *pty.TerminalState) error {
-		assertRestoreCall(t, fd, state, stdin.reader.Fd(), stdinState)
+		if fd != stdin.reader.Fd() || state != stdinState {
+			t.Fatalf("unexpected restore call: fd=%d state=%p", fd, state)
+		}
 		restoreCalled = true
 		return nil
 	}
@@ -104,7 +128,10 @@ func TestMakeRawTermStopsWhenInputSetupFails(t *testing.T) {
 	restore := stubTerminalFuncs(t)
 	defer restore()
 
-	makeInputRawTerm = makeRawRecorder(t, nil, "", stdin.reader.Fd(), nil, inputErr)
+	makeInputRawTerm = makeRawRecorder(
+		t,
+		rawRecorderOpts{wantFD: stdin.reader.Fd(), err: inputErr},
+	)
 	makeOutputRawTerm = func(uintptr) (*pty.TerminalState, error) {
 		outputCalled = true
 		return &pty.TerminalState{}, nil
@@ -181,24 +208,25 @@ func stubTerminalFuncs(t *testing.T) func() {
 	}
 }
 
-func makeRawRecorder(
-	t *testing.T,
-	calls *[]string,
-	label string,
-	wantFD uintptr,
-	state *pty.TerminalState,
-	err error,
-) func(uintptr) (*pty.TerminalState, error) {
+type rawRecorderOpts struct {
+	calls  *[]string
+	label  string
+	wantFD uintptr
+	state  *pty.TerminalState
+	err    error
+}
+
+func makeRawRecorder(t *testing.T, opts rawRecorderOpts) func(uintptr) (*pty.TerminalState, error) {
 	t.Helper()
 
 	return func(fd uintptr) (*pty.TerminalState, error) {
-		if calls != nil && label != "" {
-			*calls = append(*calls, label)
+		if opts.calls != nil && opts.label != "" {
+			*opts.calls = append(*opts.calls, opts.label)
 		}
-		if fd != wantFD {
-			t.Fatalf("expected fd %d, got %d", wantFD, fd)
+		if fd != opts.wantFD {
+			t.Fatalf("expected fd %d, got %d", opts.wantFD, fd)
 		}
-		return state, err
+		return opts.state, opts.err
 	}
 }
 
@@ -216,20 +244,6 @@ func restoreRecorder(
 		}
 		*calls = append(*calls, call.label)
 		return nil
-	}
-}
-
-func assertRestoreCall(
-	t *testing.T,
-	fd uintptr,
-	state *pty.TerminalState,
-	wantFD uintptr,
-	wantState *pty.TerminalState,
-) {
-	t.Helper()
-
-	if fd != wantFD || state != wantState {
-		t.Fatalf("unexpected restore call: fd=%d state=%p", fd, state)
 	}
 }
 
