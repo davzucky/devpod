@@ -188,6 +188,7 @@ var _ = ginkgo.Describe(
 			done := make(chan error)
 			sshContext, sshCancel := context.WithCancel(context.Background())
 			go func() {
+				// #nosec G204 -- test command with controlled arguments
 				cmd := exec.CommandContext(
 					sshContext,
 					filepath.Join(tc.f.DevpodBinDir, tc.f.DevpodBinName),
@@ -213,7 +214,7 @@ var _ = ginkgo.Describe(
 			gomega.Eventually(func(g gomega.Gomega) {
 				response, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d", localPort))
 				g.Expect(err).NotTo(gomega.HaveOccurred())
-				defer response.Body.Close()
+				defer func() { _ = response.Body.Close() }()
 
 				body, err := io.ReadAll(response.Body)
 				g.Expect(err).NotTo(gomega.HaveOccurred())

@@ -32,7 +32,9 @@ func parseForwardPortSpec(raw string) (port.Mapping, error) {
 	}
 }
 
-func newForwardPortMapping(localHost, localPort, remoteHost, remotePort string) (port.Mapping, error) {
+func newForwardPortMapping(
+	localHost, localPort, remoteHost, remotePort string,
+) (port.Mapping, error) {
 	hostAddress, err := parseForwardLocalAddress(localHost, localPort)
 	if err != nil {
 		return port.Mapping{}, fmt.Errorf("parse host address: %w", err)
