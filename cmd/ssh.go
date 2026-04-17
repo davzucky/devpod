@@ -113,7 +113,7 @@ func NewSSHCmd(f *flags.GlobalFlags) *cobra.Command {
 	sshCmd.Flags().
 		StringArrayVarP(&cmd.ForwardPorts, "forward-ports", "L", []string{},
 			"Specifies that connections to the given TCP port or Unix socket on the local (client) "+
-				"host are to be forwarded to the given host and port, or Unix socket, on the remote side.")
+				"host are to be forwarded to the given host, service name, and port, or Unix socket, on the remote side.")
 	sshCmd.Flags().
 		StringArrayVarP(&cmd.ReverseForwardPorts, "reverse-forward-ports", "R", []string{},
 			"Specifies that connections to the given TCP port or Unix socket on the local (client) "+
@@ -452,7 +452,7 @@ func (cmd *SSHCmd) forwardPorts(
 
 	errChan := make(chan error, len(cmd.ForwardPorts))
 	for _, portMapping := range cmd.ForwardPorts {
-		mapping, err := port.ParsePortSpec(portMapping)
+		mapping, err := parseForwardPortSpec(portMapping)
 		if err != nil {
 			return fmt.Errorf("parse port mapping: %w", err)
 		}
