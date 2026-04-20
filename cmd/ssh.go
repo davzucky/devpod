@@ -116,8 +116,8 @@ func NewSSHCmd(f *flags.GlobalFlags) *cobra.Command {
 				"host are to be forwarded to the given host, service name, and port, or Unix socket, on the remote side.")
 	sshCmd.Flags().
 		StringArrayVarP(&cmd.ReverseForwardPorts, "reverse-forward-ports", "R", []string{},
-			"Specifies that connections to the given TCP port or Unix socket on the local (client) "+
-				"host are to be reverse forwarded to the given host and port, or Unix socket, on the remote side.")
+			"Specifies that connections to the given TCP port or Unix socket on the remote side "+
+				"are to be reverse forwarded to the given local host, service name, and port, or Unix socket.")
 	sshCmd.Flags().
 		StringArrayVarP(&cmd.SendEnvVars, "send-env", "", []string{},
 			"Specifies which local env variables shall be sent to the container.")
@@ -400,44 +400,11 @@ func (cmd *SSHCmd) reverseForwardPorts(
 	containerClient *ssh.Client,
 	log log.Logger,
 ) error {
-	timeout, err := cmd.forwardTimeout(log)
-	if err != nil {
-		return fmt.Errorf("parse forward ports timeout: %w", err)
-	}
-
-	errChan := make(chan error, len(cmd.ReverseForwardPorts))
-	for _, portMapping := range cmd.ReverseForwardPorts {
-		mapping, err := port.ParsePortSpec(portMapping)
-		if err != nil {
-			return fmt.Errorf("parse port mapping: %w", err)
-		}
-
-		// start the forwarding
-		log.Infof(
-			"Reverse forwarding local %s/%s to remote %s/%s",
-			mapping.Host.Protocol,
-			mapping.Host.Address,
-			mapping.Container.Protocol,
-			mapping.Container.Address,
-		)
-		go func(portMapping string) {
-			err := devssh.ReversePortForward(
-				ctx,
-				containerClient,
-				mapping.Host.Protocol,
-				mapping.Host.Address,
-				mapping.Container.Protocol,
-				mapping.Container.Address,
-				timeout,
-				log,
-			)
-			if !errors.Is(io.EOF, err) {
-				errChan <- fmt.Errorf("error forwarding %s: %w", portMapping, err)
-			}
-		}(portMapping)
-	}
-
-	return <-errChan
+	return cmd.runPortForwards(ctx, containerClient, portForwardConfig{
+		mappings:    cmd.ReverseForwardPorts,
+		logTemplate: "Reverse forwarding remote %s/%s to local %s/%s",
+		forwardFn:   devssh.ReversePortForward,
+	}, log)
 }
 
 func (cmd *SSHCmd) forwardPorts(
@@ -445,28 +412,58 @@ func (cmd *SSHCmd) forwardPorts(
 	containerClient *ssh.Client,
 	log log.Logger,
 ) error {
-	timeout, err := cmd.forwardTimeout(log)
+	return cmd.runPortForwards(ctx, containerClient, portForwardConfig{
+		mappings:    cmd.ForwardPorts,
+		logTemplate: "Forwarding local %s/%s to remote %s/%s",
+		forwardFn:   devssh.PortForward,
+	}, log)
+}
+
+type portForwardFunc func(
+	context.Context,
+	*ssh.Client,
+	string,
+	string,
+	string,
+	string,
+	time.Duration,
+	log.Logger,
+) error
+
+type portForwardConfig struct {
+	mappings    []string
+	logTemplate string
+	forwardFn   portForwardFunc
+}
+
+func (cmd *SSHCmd) runPortForwards(
+	ctx context.Context,
+	containerClient *ssh.Client,
+	config portForwardConfig,
+	logger log.Logger,
+) error {
+	timeout, err := cmd.forwardTimeout(logger)
 	if err != nil {
 		return fmt.Errorf("parse forward ports timeout: %w", err)
 	}
 
-	errChan := make(chan error, len(cmd.ForwardPorts))
-	for _, portMapping := range cmd.ForwardPorts {
-		mapping, err := parseForwardPortSpec(portMapping)
+	errChan := make(chan error, len(config.mappings))
+	for _, portMapping := range config.mappings {
+		mapping, err := port.ParsePortSpec(portMapping)
 		if err != nil {
 			return fmt.Errorf("parse port mapping: %w", err)
 		}
 
 		// start the forwarding
-		log.Infof(
-			"Forwarding local %s/%s to remote %s/%s",
+		logger.Infof(
+			config.logTemplate,
 			mapping.Host.Protocol,
 			mapping.Host.Address,
 			mapping.Container.Protocol,
 			mapping.Container.Address,
 		)
-		go func(portMapping string) {
-			err := devssh.PortForward(
+		go func(portMapping string, mapping port.Mapping) {
+			err := config.forwardFn(
 				ctx,
 				containerClient,
 				mapping.Host.Protocol,
@@ -474,12 +471,12 @@ func (cmd *SSHCmd) forwardPorts(
 				mapping.Container.Protocol,
 				mapping.Container.Address,
 				timeout,
-				log,
+				logger,
 			)
-			if !errors.Is(io.EOF, err) {
+			if err != nil && !errors.Is(err, io.EOF) {
 				errChan <- fmt.Errorf("error forwarding %s: %w", portMapping, err)
 			}
-		}(portMapping)
+		}(portMapping, mapping)
 	}
 
 	return <-errChan
