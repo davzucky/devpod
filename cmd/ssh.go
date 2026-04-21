@@ -443,6 +443,23 @@ type parsedPortForward struct {
 	mapping port.Mapping
 }
 
+func parsePortForwards(mappings []string) ([]parsedPortForward, error) {
+	parsedMappings := make([]parsedPortForward, 0, len(mappings))
+	for _, portMapping := range mappings {
+		mapping, err := port.ParsePortSpec(portMapping)
+		if err != nil {
+			return nil, fmt.Errorf("parse port mapping: %w", err)
+		}
+
+		parsedMappings = append(parsedMappings, parsedPortForward{
+			spec:    portMapping,
+			mapping: mapping,
+		})
+	}
+
+	return parsedMappings, nil
+}
+
 func (cmd *SSHCmd) runPortForwards(
 	ctx context.Context,
 	containerClient *ssh.Client,
@@ -454,14 +471,9 @@ func (cmd *SSHCmd) runPortForwards(
 		return fmt.Errorf("parse forward ports timeout: %w", err)
 	}
 
-	parsedMappings := make([]parsedPortForward, 0, len(config.mappings))
-	for _, portMapping := range config.mappings {
-		mapping, err := port.ParsePortSpec(portMapping)
-		if err != nil {
-			return fmt.Errorf("parse port mapping: %w", err)
-		}
-
-		parsedMappings = append(parsedMappings, parsedPortForward{spec: portMapping, mapping: mapping})
+	parsedMappings, err := parsePortForwards(config.mappings)
+	if err != nil {
+		return err
 	}
 
 	errChan := make(chan error, len(parsedMappings))
