@@ -63,3 +63,15 @@ func TestParsePortSpec_DelegatesUnixSocketMappings(t *testing.T) {
 		Container: Address{Protocol: "unix", Address: "/tmp/remote.sock"},
 	}, mapping)
 }
+
+func TestParsePortSpec_RejectsEmptyListenUnixSocketPath(t *testing.T) {
+	_, err := ParsePortSpec(":/tmp/remote.sock")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "listen host is empty")
+}
+
+func TestParsePortSpec_RejectsEmptyTargetUnixSocketPath(t *testing.T) {
+	_, err := ParsePortSpec("/tmp/local.sock:")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "target host is empty")
+}

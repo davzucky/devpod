@@ -1,12 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/skevetter/log"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 )
 
 func writeGitConfig(t *testing.T, content string) {
@@ -56,4 +60,29 @@ func TestGpgSigningKey_TildeKeyPath_Skipped(t *testing.T) {
 	writeGitConfig(t, "[user]\n\tsigningKey = ~/.ssh/id_ed25519.pub\n")
 	result := gpgSigningKey(log.Discard)
 	assert.Empty(t, result)
+}
+
+func TestRunPortForwards_ReturnsOnCleanExit(t *testing.T) {
+	cmd := &SSHCmd{}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	err := cmd.runPortForwards(ctx, nil, portForwardConfig{
+		mappings:    []string{"8080:80"},
+		logTemplate: "test %s/%s %s/%s",
+		forwardFn: func(
+			context.Context,
+			*ssh.Client,
+			string,
+			string,
+			string,
+			string,
+			time.Duration,
+			log.Logger,
+		) error {
+			return nil
+		},
+	}, log.Discard)
+
+	require.NoError(t, err)
 }

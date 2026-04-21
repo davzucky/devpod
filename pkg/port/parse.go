@@ -89,6 +89,10 @@ func toTCPAddress(ip, port string, opts addressOptions) (Address, error) {
 }
 
 func toUnixAddress(ip, port string, opts addressOptions) (Address, error) {
+	if port == "" {
+		return Address{}, fmt.Errorf("%s is empty", opts.emptyHostLabel)
+	}
+
 	if opts.requireHost && ip == "" {
 		return Address{}, fmt.Errorf("%s is empty", opts.emptyHostLabel)
 	}

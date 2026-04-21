@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"al.essio.dev/pkg/shellescape"
@@ -448,6 +449,7 @@ func (cmd *SSHCmd) runPortForwards(
 	}
 
 	errChan := make(chan error, len(config.mappings))
+	var waitGroup sync.WaitGroup
 	for _, portMapping := range config.mappings {
 		mapping, err := port.ParsePortSpec(portMapping)
 		if err != nil {
@@ -462,7 +464,10 @@ func (cmd *SSHCmd) runPortForwards(
 			mapping.Container.Protocol,
 			mapping.Container.Address,
 		)
+		waitGroup.Add(1)
 		go func(portMapping string, mapping port.Mapping) {
+			defer waitGroup.Done()
+
 			err := config.forwardFn(
 				ctx,
 				containerClient,
@@ -479,7 +484,18 @@ func (cmd *SSHCmd) runPortForwards(
 		}(portMapping, mapping)
 	}
 
-	return <-errChan
+	go func() {
+		waitGroup.Wait()
+		close(errChan)
+	}()
+
+	for err := range errChan {
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (cmd *SSHCmd) startTunnel(
