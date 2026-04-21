@@ -383,15 +383,16 @@ func (cmd *SSHCmd) jumpContainer(
 }
 
 func (cmd *SSHCmd) forwardTimeout(log log.Logger) (time.Duration, error) {
-	timeout := time.Duration(0)
-	if cmd.ForwardPortsTimeout != "" {
-		timeout, err := time.ParseDuration(cmd.ForwardPortsTimeout)
-		if err != nil {
-			return timeout, fmt.Errorf("parse forward ports timeout: %w", err)
-		}
-
-		log.Infof("Using port forwarding timeout of %s", cmd.ForwardPortsTimeout)
+	if cmd.ForwardPortsTimeout == "" {
+		return 0, nil
 	}
+
+	timeout, err := time.ParseDuration(cmd.ForwardPortsTimeout)
+	if err != nil {
+		return 0, fmt.Errorf("parse forward ports timeout: %w", err)
+	}
+
+	log.Infof("Using port forwarding timeout of %s", cmd.ForwardPortsTimeout)
 
 	return timeout, nil
 }
@@ -437,6 +438,11 @@ type portForwardConfig struct {
 	forwardFn   portForwardFunc
 }
 
+type parsedPortForward struct {
+	spec    string
+	mapping port.Mapping
+}
+
 func (cmd *SSHCmd) runPortForwards(
 	ctx context.Context,
 	containerClient *ssh.Client,
@@ -448,13 +454,20 @@ func (cmd *SSHCmd) runPortForwards(
 		return fmt.Errorf("parse forward ports timeout: %w", err)
 	}
 
-	errChan := make(chan error, len(config.mappings))
-	var waitGroup sync.WaitGroup
+	parsedMappings := make([]parsedPortForward, 0, len(config.mappings))
 	for _, portMapping := range config.mappings {
 		mapping, err := port.ParsePortSpec(portMapping)
 		if err != nil {
 			return fmt.Errorf("parse port mapping: %w", err)
 		}
+
+		parsedMappings = append(parsedMappings, parsedPortForward{spec: portMapping, mapping: mapping})
+	}
+
+	errChan := make(chan error, len(parsedMappings))
+	var waitGroup sync.WaitGroup
+	for _, parsedMapping := range parsedMappings {
+		portMapping, mapping := parsedMapping.spec, parsedMapping.mapping
 
 		// start the forwarding
 		logger.Infof(
