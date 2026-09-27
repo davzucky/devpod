@@ -86,9 +86,6 @@ func (cmd *UpCmd) execute(cobraCmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("prepare workspace client: %w", err)
 	}
-	if cmd.ExtraDevContainerPath != "" && client.Provider() != "docker" {
-		return fmt.Errorf("extra devcontainer file is only supported with local provider")
-	}
 
 	telemetry.CollectorCLI.SetClient(client)
 	return cmd.Run(ctx, devPodConfig, client, args, logger)
@@ -157,9 +154,9 @@ func (cmd *UpCmd) registerDevContainerFlags(upCmd *cobra.Command) {
 				"(e.g., folder name in .devcontainer/FOLDER/devcontainer.json)")
 	upCmd.Flags().
 		StringVar(&cmd.ExtraDevContainerPath, "extra-devcontainer-path", "",
-			"The path to an additional devcontainer.json for runtime settings and build features (local Docker only). "+
+			"The local path to an additional devcontainer.json for runtime settings and build features. "+
 				"Feature options override the project's; --additional-features takes precedence. "+
-				"Use --recreate to apply feature changes")
+				"Feature changes require rebuilding an existing container")
 	upCmd.Flags().
 		StringVar(&cmd.FallbackImage, "fallback-image", "",
 			"The fallback image to use if no devcontainer configuration has been detected")
@@ -749,6 +746,19 @@ func mergeEnvFromFiles(baseOptions *provider2.CLIOptions) error {
 	return nil
 }
 
+// loadExtraDevContainerConfig reads the local file before forwarding options to a provider.
+func loadExtraDevContainerConfig(options *provider2.CLIOptions) error {
+	if options.ExtraDevContainerConfig != nil || options.ExtraDevContainerPath == "" {
+		return nil
+	}
+	extraConfig, err := config2.ParseDevContainerJSONFile(options.ExtraDevContainerPath)
+	if err != nil {
+		return fmt.Errorf("parse --extra-devcontainer-path: %w", err)
+	}
+	options.ExtraDevContainerConfig = extraConfig
+	return nil
+}
+
 var inheritedEnvironmentVariables = []string{
 	"GIT_AUTHOR_NAME",
 	"GIT_AUTHOR_EMAIL",
@@ -765,6 +775,9 @@ func (cmd *UpCmd) prepareClient(
 ) (client2.BaseWorkspaceClient, log.Logger, error) {
 	// try to parse flags from env
 	if err := mergeDevPodUpOptions(&cmd.CLIOptions); err != nil {
+		return nil, nil, err
+	}
+	if err := loadExtraDevContainerConfig(&cmd.CLIOptions); err != nil {
 		return nil, nil, err
 	}
 

@@ -199,7 +199,7 @@ func (r *runner) substitute(
 	if err := mergeExtraFeatures(
 		parsedConfig,
 		substitutionContext,
-		options.ExtraDevContainerPath,
+		options.ExtraDevContainerConfig,
 	); err != nil {
 		return nil, nil, err
 	}
@@ -235,16 +235,9 @@ func (r *runner) substitute(
 func mergeExtraFeatures(
 	parsedConfig *config.DevContainerConfig,
 	substitutionContext *config.SubstitutionContext,
-	extraPath string,
+	extraConfig *config.DevContainerConfig,
 ) error {
-	if extraPath == "" {
-		return nil
-	}
-	extraConfig, err := config.ParseDevContainerJSONFile(extraPath)
-	if err != nil {
-		return fmt.Errorf("parse --extra-devcontainer-path: %w", err)
-	}
-	if len(extraConfig.Features) == 0 {
+	if extraConfig == nil || len(extraConfig.Features) == 0 {
 		return nil
 	}
 	extraFeatures := map[string]any{}

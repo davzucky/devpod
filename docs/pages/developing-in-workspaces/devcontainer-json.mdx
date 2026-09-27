@@ -102,7 +102,7 @@ field of the `devcontainer.json` file as follows:
 
 ### Personal features and runtime settings
 
-With the local Docker provider, `--extra-devcontainer-path` lets you keep personal features and runtime settings outside the project repository:
+`--extra-devcontainer-path` lets you keep personal features and runtime settings outside the project repository. DevPod reads the file on your machine and passes its configuration to the selected provider, including remote targets:
 
 ```json
 {
@@ -116,12 +116,12 @@ With the local Docker provider, `--extra-devcontainer-path` lets you keep person
 ```
 
 ```bash
-devpod up . --extra-devcontainer-path ../personal-devcontainer/extra.json --recreate
+devpod up . --extra-devcontainer-path ../personal-devcontainer/extra.json
 ```
 
 Features from the extra file participate in image, Dockerfile, and Docker Compose builds. For the same feature ID, the extra file replaces the project's feature options, and `--additional-features` takes precedence over both. The entire option value is replaced, rather than merging individual options. Other feature IDs are preserved. Feature option values support the same variable substitution as the project's configuration, including `${localEnv:VARIABLE}`.
 
-Use `--recreate` to apply feature changes to an existing workspace. A normal `up` on a running container does not install new features.
+Feature changes follow the same create/rebuild lifecycle as the project's devcontainer configuration. Rebuild an existing container to apply them. A normal `up` on a running container does not install new features.
 
 ## devcontainer.json Development Flow
 

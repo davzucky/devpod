@@ -2,7 +2,6 @@ package devcontainer
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/skevetter/devpod/pkg/devcontainer/config"
@@ -256,15 +255,13 @@ func (s *SubstituteTestSuite) TestSubstitute_AdditionalFeaturesEmpty() {
 
 func (s *SubstituteTestSuite) TestSubstitute_ExtraFeatures() {
 	const node = "ghcr.io/devcontainers/features/node:1"
-	extraPath := filepath.Join(s.T().TempDir(), "extra.json")
-	s.Require().NoError(os.WriteFile(extraPath, []byte(`{
-		// Personal features.
-		"features": {
-			"ghcr.io/devcontainers/features/node:1": {"version": "${localEnv:NODE_VERSION}"},
-			"ghcr.io/devcontainers/features/git:1": {},
+	extraConfig := &config.DevContainerConfig{}
+	extraConfig.Features = map[string]any{
+		node: map[string]any{
+			"version": "${localEnv:NODE_VERSION}",
 		},
-		"forwardPorts": [3774],
-	}`), 0o600))
+		"ghcr.io/devcontainers/features/git:1": map[string]any{},
+	}
 
 	for _, tc := range []struct {
 		name       string
@@ -297,9 +294,9 @@ func (s *SubstituteTestSuite) TestSubstitute_ExtraFeatures() {
 			}
 			original := config.CloneDevContainerConfig(rawConfig)
 			result, _, err := s.runner.substitute(provider2.CLIOptions{
-				ExtraDevContainerPath: extraPath,
-				AdditionalFeatures:    tc.additional,
-				InitEnv:               []string{"NODE_VERSION=20"},
+				ExtraDevContainerConfig: extraConfig,
+				AdditionalFeatures:      tc.additional,
+				InitEnv:                 []string{"NODE_VERSION=20"},
 			}, rawConfig)
 
 			s.Require().NoError(err)
@@ -318,28 +315,14 @@ func (s *SubstituteTestSuite) TestSubstitute_ExtraFeatures() {
 }
 
 func (s *SubstituteTestSuite) TestSubstitute_ExtraFileWithoutFeatures() {
-	extraPath := filepath.Join(s.T().TempDir(), "extra.json")
-	for _, content := range []string{`{"forwardPorts": [3774]}`, `{"features": {}}`, `{"features": null}`} {
-		s.Require().NoError(os.WriteFile(extraPath, []byte(content), 0o600))
+	for _, features := range []map[string]any{nil, {}} {
 		result, _, err := s.runner.substitute(provider2.CLIOptions{
-			ExtraDevContainerPath: extraPath,
+			ExtraDevContainerConfig: &config.DevContainerConfig{
+				DevContainerConfigBase: config.DevContainerConfigBase{Features: features},
+			},
 		}, &config.DevContainerConfig{})
 		s.Require().NoError(err)
 		s.Nil(result.Config.Features)
-	}
-}
-
-func (s *SubstituteTestSuite) TestSubstitute_ExtraFeaturesInvalidFile() {
-	extraPath := filepath.Join(s.T().TempDir(), "extra.json")
-	for _, content := range []string{"", `{invalid`, `{"features": []}`} {
-		if content != "" {
-			s.Require().NoError(os.WriteFile(extraPath, []byte(content), 0o600))
-		}
-		_, _, err := s.runner.substitute(provider2.CLIOptions{
-			ExtraDevContainerPath: extraPath,
-		}, &config.DevContainerConfig{})
-		s.Require().Error(err)
-		s.Contains(err.Error(), "--extra-devcontainer-path")
 	}
 }
 

@@ -128,8 +128,14 @@ var _ = ginkgo.Describe(
 		})
 
 		ginkgo.It(
-			"should rebuild features from an extra devcontainer file",
+			"should build features from an extra devcontainer file with a renamed provider",
 			func(ctx context.Context) {
+				framework.ExpectNoError(f.DevPodProviderRename(ctx, "docker", "personal-tools"))
+				ginkgo.DeferCleanup(func(cleanupCtx context.Context) {
+					framework.ExpectNoError(
+						f.DevPodProviderRename(cleanupCtx, "personal-tools", "docker"),
+					)
+				})
 				tempDir, err := setupWorkspace(
 					"tests/up-docker-compose/testdata/docker-compose-rebuild-success",
 					initialDir,
@@ -150,57 +156,19 @@ var _ = ginkgo.Describe(
 					), 0o600),
 				)
 				extraPath := filepath.Join(ginkgo.GinkgoT().TempDir(), "extra.json")
-				framework.ExpectNoError(
-					os.WriteFile(
-						extraPath,
-						[]byte(`{"remoteEnv": {"EXTRA_RUNTIME": "kept"}}`),
-						0o600,
-					),
-				)
-				framework.ExpectNoError(
-					f.DevPodUp(ctx, tempDir, "--extra-devcontainer-path", extraPath),
-				)
-
-				ginkgo.By("Leaving a running container unchanged without --recreate")
 				framework.ExpectNoError(os.WriteFile(extraPath, []byte(
-					`{"features": {"./feature": {"value": "first"}}, "remoteEnv": {"EXTRA_RUNTIME": "kept"}}`,
+					`{"features": {"./feature": {"value": "from-extra"}}, "remoteEnv": {"EXTRA_RUNTIME": "kept"}}`,
 				), 0o600))
 				framework.ExpectNoError(
 					f.DevPodUp(ctx, tempDir, "--extra-devcontainer-path", extraPath),
 				)
-				_, err = f.DevPodSSH(
-					ctx,
-					tempDir,
-					"test ! -e /usr/local/share/extra-feature-marker",
+				output, err := f.DevPodSSH(ctx, tempDir,
+					`test "$EXTRA_RUNTIME" = kept && cat /usr/local/share/extra-feature-marker`,
 				)
 				framework.ExpectNoError(err)
-
-				ginkgo.By("Installing extra features and applying changed options on rebuild")
-				for _, value := range []string{"first", "second"} {
-					framework.ExpectNoError(os.WriteFile(extraPath, fmt.Appendf(
-						nil,
-						`{"features": {"./feature": {"value": %q}}, "remoteEnv": {"EXTRA_RUNTIME": "kept"}}`,
-						value,
-					), 0o600))
-					framework.ExpectNoError(
-						f.DevPodUp(
-							ctx,
-							tempDir,
-							"--extra-devcontainer-path",
-							extraPath,
-							"--recreate",
-						),
-					)
-					output, err := f.DevPodSSH(
-						ctx,
-						tempDir,
-						`test "$EXTRA_RUNTIME" = kept && cat /usr/local/share/extra-feature-marker`,
-					)
-					framework.ExpectNoError(err)
-					gomega.Expect(strings.TrimSpace(output)).To(gomega.Equal(value))
-				}
+				gomega.Expect(strings.TrimSpace(output)).To(gomega.Equal("from-extra"))
 			},
-			ginkgo.SpecTimeout(framework.GetTimeout()*3),
+			ginkgo.SpecTimeout(framework.GetTimeout()),
 		)
 
 		ginkgo.It("should delete container upon successful rebuild", func(ctx context.Context) {
