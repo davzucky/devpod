@@ -2,9 +2,12 @@ package devcontainer
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/skevetter/devpod/pkg/devcontainer/config"
+	"github.com/skevetter/devpod/pkg/devcontainer/feature"
 	provider2 "github.com/skevetter/devpod/pkg/provider"
 	"github.com/skevetter/log"
 	"github.com/stretchr/testify/suite"
@@ -18,6 +21,57 @@ const (
 type SubstituteTestSuite struct {
 	suite.Suite
 	runner *runner
+}
+
+func (s *SubstituteTestSuite) TestSubstitute_ExtraFeaturesResolveFromExtraFileDirectory() {
+	root := s.T().TempDir()
+	projectDir := filepath.Join(root, "project")
+	extraDir := filepath.Join(root, "personal", "settings")
+	localFeatureDirs := map[string]string{
+		"./feature":  filepath.Join(extraDir, "feature"),
+		"../feature": filepath.Join(root, "personal", "feature"),
+	}
+	for _, dir := range localFeatureDirs {
+		s.Require().NoError(os.MkdirAll(dir, 0o750))
+		s.Require().NoError(os.WriteFile(
+			filepath.Join(dir, "devcontainer-feature.json"),
+			[]byte(`{"id":"local"}`),
+			0o600,
+		))
+	}
+	s.Require().NoError(os.MkdirAll(projectDir, 0o750))
+	extraPath := filepath.Join(extraDir, "extra.json")
+	s.Require().NoError(os.MkdirAll(extraDir, 0o750))
+	s.Require().NoError(os.WriteFile(
+		extraPath,
+		[]byte(`{"features":{"./feature":{},"../feature":{}}}`),
+		0o600,
+	))
+	extraConfig, err := config.ParseDevContainerJSONFile(extraPath)
+	s.Require().NoError(err)
+
+	result, _, err := s.runner.substitute(provider2.CLIOptions{
+		ExtraDevContainerConfig: extraConfig,
+	}, &config.DevContainerConfig{Origin: filepath.Join(projectDir, "devcontainer.json")})
+	s.Require().NoError(err)
+	for featureID, expectedDir := range localFeatureDirs {
+		relativeToProject, err := filepath.Rel(projectDir, expectedDir)
+		s.Require().NoError(err)
+		s.True(
+			strings.HasPrefix(relativeToProject, ".."),
+			"feature fixture must remain outside the project",
+		)
+		resolvedID, err := filepath.Abs(expectedDir)
+		s.Require().NoError(err)
+		options, ok := result.Config.Features[resolvedID]
+		s.True(ok, "extra feature %s should resolve from extra file directory", featureID)
+		featurePath, err := feature.ProcessFeatureID(resolvedID, result.Config, log.Discard, false)
+		s.Require().NoError(err)
+		s.Equal(expectedDir, featurePath)
+		_, err = config.ParseDevContainerFeature(featurePath)
+		s.Require().NoError(err)
+		s.Equal(map[string]any{}, options)
+	}
 }
 
 func TestSubstituteTestSuite(t *testing.T) {

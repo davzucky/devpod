@@ -9,6 +9,7 @@ import (
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/client/clientimplementation"
 	"github.com/skevetter/devpod/pkg/config"
+	devcontainerconfig "github.com/skevetter/devpod/pkg/devcontainer/config"
 	"github.com/skevetter/devpod/pkg/provider"
 	"github.com/skevetter/devpod/pkg/types"
 	"github.com/stretchr/testify/require"
@@ -76,4 +77,34 @@ func TestLoadExtraDevContainerConfig(t *testing.T) {
 		err := loadExtraDevContainerConfig(&options)
 		require.ErrorContains(t, err, "--extra-devcontainer-path")
 	}
+}
+
+func TestValidateExtraFeatureProvider(t *testing.T) {
+	t.Run("remote provider rejects local feature references", func(t *testing.T) {
+		options := provider.CLIOptions{
+			ExtraDevContainerConfig: &devcontainerconfig.DevContainerConfig{
+				DevContainerConfigBase: devcontainerconfig.DevContainerConfigBase{
+					Features: map[string]any{
+						"../local-feature": map[string]any{},
+					},
+				},
+			},
+		}
+		require.ErrorContains(t, validateExtraFeatureProvider(options, "ssh"), "local feature")
+		require.ErrorContains(t, validateExtraFeatureProvider(options, "ssh"), "OCI or HTTP")
+	})
+
+	t.Run("remote provider keeps OCI and HTTP features", func(t *testing.T) {
+		options := provider.CLIOptions{
+			ExtraDevContainerConfig: &devcontainerconfig.DevContainerConfig{
+				DevContainerConfigBase: devcontainerconfig.DevContainerConfigBase{
+					Features: map[string]any{
+						"ghcr.io/devcontainers/features/git:1": map[string]any{},
+						"https://example.com/feature.tgz":      map[string]any{},
+					},
+				},
+			},
+		}
+		require.NoError(t, validateExtraFeatureProvider(options, "ssh"))
+	})
 }

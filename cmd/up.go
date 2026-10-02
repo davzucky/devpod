@@ -86,6 +86,9 @@ func (cmd *UpCmd) execute(cobraCmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("prepare workspace client: %w", err)
 	}
+	if err := validateExtraFeatureProvider(cmd.CLIOptions, client.Provider()); err != nil {
+		return err
+	}
 
 	telemetry.CollectorCLI.SetClient(client)
 	return cmd.Run(ctx, devPodConfig, client, args, logger)
@@ -756,6 +759,24 @@ func loadExtraDevContainerConfig(options *provider2.CLIOptions) error {
 		return fmt.Errorf("parse --extra-devcontainer-path: %w", err)
 	}
 	options.ExtraDevContainerConfig = extraConfig
+	return nil
+}
+
+func validateExtraFeatureProvider(options provider2.CLIOptions, providerName string) error {
+	if providerName == "docker" || options.ExtraDevContainerConfig == nil {
+		return nil
+	}
+	for featureID := range options.ExtraDevContainerConfig.Features {
+		if strings.HasPrefix(featureID, "./") || strings.HasPrefix(featureID, "../") ||
+			filepath.IsAbs(featureID) {
+			return fmt.Errorf(
+				"local feature %q from --extra-devcontainer-path is unsupported by provider %q; "+
+					"use an OCI or HTTP feature reference",
+				featureID,
+				providerName,
+			)
+		}
+	}
 	return nil
 }
 
