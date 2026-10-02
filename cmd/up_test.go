@@ -79,6 +79,26 @@ func TestLoadExtraDevContainerConfig(t *testing.T) {
 	}
 }
 
+func TestLoadExtraDevContainerConfigResolvesLocalFeatureBeforeForwarding(t *testing.T) {
+	extraDir := t.TempDir()
+	extraPath := filepath.Join(extraDir, "extra.json")
+	require.NoError(t, os.WriteFile(extraPath, []byte(`{"features":{"../feature":{}}}`), 0o600))
+	options := provider.CLIOptions{ExtraDevContainerPath: extraPath}
+	require.NoError(t, loadExtraDevContainerConfig(&options))
+
+	resolvedFeaturePath, err := filepath.Abs(filepath.Join(extraDir, "../feature"))
+	require.NoError(t, err)
+	_, ok := options.ExtraDevContainerConfig.Features[resolvedFeaturePath]
+	require.True(t, ok)
+
+	data, err := json.Marshal(options)
+	require.NoError(t, err)
+	var forwarded provider.CLIOptions
+	require.NoError(t, json.Unmarshal(data, &forwarded))
+	_, ok = forwarded.ExtraDevContainerConfig.Features[resolvedFeaturePath]
+	require.True(t, ok)
+}
+
 func TestValidateExtraFeatureProvider(t *testing.T) {
 	t.Run("remote provider rejects local feature references", func(t *testing.T) {
 		options := provider.CLIOptions{
@@ -90,8 +110,17 @@ func TestValidateExtraFeatureProvider(t *testing.T) {
 				},
 			},
 		}
-		require.ErrorContains(t, validateExtraFeatureProvider(options, "ssh"), "local feature")
-		require.ErrorContains(t, validateExtraFeatureProvider(options, "ssh"), "OCI or HTTP")
+		remoteProvider := &provider.ProviderConfig{Name: "ssh"}
+		require.ErrorContains(
+			t,
+			validateExtraFeatureProvider(options, remoteProvider),
+			"local feature",
+		)
+		require.ErrorContains(
+			t,
+			validateExtraFeatureProvider(options, remoteProvider),
+			"OCI or HTTP",
+		)
 	})
 
 	t.Run("remote provider keeps OCI and HTTP features", func(t *testing.T) {
@@ -105,6 +134,22 @@ func TestValidateExtraFeatureProvider(t *testing.T) {
 				},
 			},
 		}
-		require.NoError(t, validateExtraFeatureProvider(options, "ssh"))
+		remoteProvider := &provider.ProviderConfig{Name: "ssh"}
+		require.NoError(t, validateExtraFeatureProvider(options, remoteProvider))
+	})
+
+	t.Run("renamed local provider allows local features", func(t *testing.T) {
+		options := provider.CLIOptions{
+			ExtraDevContainerConfig: &devcontainerconfig.DevContainerConfig{
+				DevContainerConfigBase: devcontainerconfig.DevContainerConfigBase{
+					Features: map[string]any{"./feature": map[string]any{}},
+				},
+			},
+		}
+		localProvider := &provider.ProviderConfig{
+			Name:  "personal-tools",
+			Agent: provider.ProviderAgentConfig{Local: types.StrBool(config.BoolTrue)},
+		}
+		require.NoError(t, validateExtraFeatureProvider(options, localProvider))
 	})
 }

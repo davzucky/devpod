@@ -142,7 +142,8 @@ var _ = ginkgo.Describe(
 					f,
 				)
 				framework.ExpectNoError(err)
-				featureDir := filepath.Join(tempDir, "feature")
+				extraDir := ginkgo.GinkgoT().TempDir()
+				featureDir := filepath.Join(extraDir, "feature")
 				framework.ExpectNoError(os.Mkdir(featureDir, 0o750))
 				framework.ExpectNoError(
 					os.WriteFile(filepath.Join(featureDir, "devcontainer-feature.json"), []byte(`{
@@ -155,7 +156,7 @@ var _ = ginkgo.Describe(
 						"#!/bin/sh\nset -eu\nprintf '%s' \"$VALUE\" > /usr/local/share/extra-feature-marker\n",
 					), 0o600),
 				)
-				extraPath := filepath.Join(ginkgo.GinkgoT().TempDir(), "extra.json")
+				extraPath := filepath.Join(extraDir, "extra.json")
 				framework.ExpectNoError(os.WriteFile(extraPath, []byte(
 					`{"features": {"./feature": {"value": "from-extra"}}, "remoteEnv": {"EXTRA_RUNTIME": "kept"}}`,
 				), 0o600))
